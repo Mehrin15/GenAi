@@ -1,0 +1,6 @@
+{
+  "name": "QGenie AI",
+  "description": "Digitize, analyze, and map academic assessments to cognitive taxonomies like Bloom's with precision.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
