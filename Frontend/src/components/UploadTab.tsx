@@ -14,8 +14,8 @@ import { AcademicPaper } from '../types';
 
 interface UploadTabProps {
   papers: AcademicPaper[];
-  setPapers: (papers: AcademicPaper[]) => void;
-  onAnalyze: (subject: string, bloomAnalysis: boolean) => void;
+  setPapers: React.Dispatch<React.SetStateAction<AcademicPaper[]>> | ((papers: AcademicPaper[]) => void);
+  onAnalyze: (newReport: any) => void;
 }
 
 export default function UploadTab({ papers, setPapers, onAnalyze }: UploadTabProps) {
@@ -24,6 +24,7 @@ export default function UploadTab({ papers, setPapers, onAnalyze }: UploadTabPro
   const [statusMessage, setStatusMessage] = useState('Estimated processing time: 45 seconds');
   const [bloomAnalysis, setBloomAnalysis] = useState(true);
   const [selectedSubject, setSelectedSubject] = useState('Natural Sciences');
+  const [fileMap, setFileMap] = useState<Record<string, File>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Drag and drop handlers
@@ -54,6 +55,8 @@ export default function UploadTab({ papers, setPapers, onAnalyze }: UploadTabPro
   // Logic to add dropped or selected files
   const addFiles = (fileList: FileList) => {
     const newPapers: AcademicPaper[] = [];
+    const newFileMap = { ...fileMap };
+    
     for (let i = 0; i < fileList.length; i++) {
       const file = fileList[i];
       if (file.type !== 'application/pdf' && !file.name.endsWith('.pdf')) {
@@ -62,8 +65,11 @@ export default function UploadTab({ papers, setPapers, onAnalyze }: UploadTabPro
       }
       
       const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+      const paperId = `paper-manual-${Date.now()}-${i}`;
+      
+      newFileMap[paperId] = file;
       newPapers.push({
-        id: `paper-manual-${Date.now()}-${i}`,
+        id: paperId,
         name: file.name,
         size: `${sizeMB} MB`,
         status: 'waiting',
@@ -75,6 +81,7 @@ export default function UploadTab({ papers, setPapers, onAnalyze }: UploadTabPro
     }
 
     if (newPapers.length > 0) {
+      setFileMap(newFileMap);
       setPapers([...papers, ...newPapers]);
     }
   };
@@ -86,65 +93,73 @@ export default function UploadTab({ papers, setPapers, onAnalyze }: UploadTabPro
   // Remove a paper from queue
   const removePaper = (id: string) => {
     setPapers(papers.filter(p => p.id !== id));
+    const newFileMap = { ...fileMap };
+    delete newFileMap[id];
+    setFileMap(newFileMap);
   };
 
   const clearAll = () => {
     setPapers([]);
+    setFileMap({});
   };
 
-  // Simulated AI Assessment mapping
-  const startSimulation = () => {
+  // Live AI Assessment mapping
+  const startSimulation = async () => {
     if (papers.length === 0) {
       alert("Please upload or have at least one question paper in the queue to analyze!");
       return;
     }
 
+    const pendingPapers = papers.filter(p => p.status === 'waiting' || p.status === 'failed');
+    if (pendingPapers.length === 0) {
+      alert("No pending papers to analyze!");
+      return;
+    }
+
     setIsAnalyzing(true);
-    let step = 0;
-    
-    // Animate current waiting/uploading papers
-    const interval = setInterval(() => {
-      step += 1;
-      const updatedPapers: AcademicPaper[] = papers.map(p => {
-        if (p.status === 'completed') return p;
-        if (p.status === 'uploading') {
-          const nextProgress = Math.min(p.progress + 15, 100);
-          return {
-            ...p,
-            progress: nextProgress,
-            status: (nextProgress === 100 ? 'completed' : 'uploading') as "completed" | "uploading" | "waiting" | "failed"
-          };
-        }
-        if (p.status === 'waiting') {
-          // transition wait -> uploading -> complete
-          return {
-            ...p,
-            status: 'uploading' as "completed" | "uploading" | "waiting" | "failed",
-            progress: 25
-          };
-        }
-        return p;
-      });
+    setStatusMessage("Connecting to academic engine...");
 
-      setPapers(updatedPapers);
+    try {
+      for (const paper of pendingPapers) {
+        const file = fileMap[paper.id];
+        if (!file) continue;
 
-      if (step === 1) {
-        setStatusMessage("Reading document structures...");
-      } else if (step === 2) {
-        setStatusMessage("Parsing equations, charts, and text...");
-      } else if (step === 3) {
-        setStatusMessage("Mapping question cognitive complexities...");
-      } else if (step === 4) {
-        setStatusMessage("Mapping Bloom's Taxonomy Levels...");
-      } else if (step >= 5) {
-        clearInterval(interval);
-        // finalize all papers as completed
-        setPapers(papers.map(p => ({ ...p, status: 'completed' as const, progress: 100 })));
-        setIsAnalyzing(false);
-        // trigger final analyze report mapping on core App
-        onAnalyze(selectedSubject, bloomAnalysis);
+        // Set status to uploading
+        setPapers(prev => prev.map(p => p.id === paper.id ? { ...p, status: 'uploading', progress: 20 } : p));
+        setStatusMessage(`Uploading ${file.name}...`);
+
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("subject", selectedSubject);
+        formData.append("bloomAnalysis", bloomAnalysis.toString());
+
+        setPapers(prev => prev.map(p => p.id === paper.id ? { ...p, progress: 50 } : p));
+        setStatusMessage("Extracting text and running cognitive taxonomy mapping...");
+
+        const response = await fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.detail || "Failed to analyze paper.");
+        }
+
+        const newReport = await response.json();
+        
+        setPapers(prev => prev.map(p => p.id === paper.id ? { ...p, status: 'completed', progress: 100 } : p));
+        
+        // Pass the resulting report up to App
+        onAnalyze(newReport);
       }
-    }, 1500);
+    } catch (error: any) {
+      alert(`Analysis failed: ${error.message}`);
+      setPapers(prev => prev.map(p => p.status === 'uploading' ? { ...p, status: 'failed', progress: 0 } : p));
+    } finally {
+      setIsAnalyzing(false);
+      setStatusMessage("Estimated processing time: ~45 seconds");
+    }
   };
 
   return (

@@ -1,9 +1,4 @@
-import { useState } from 'react';
-import { 
-  INITIAL_PAPERS, 
-  INITIAL_REPORTS, 
-  QUESTION_BANK_DATA 
-} from './data';
+import { useState, useEffect } from 'react';
 import { Page, AcademicPaper, Report, Question } from './types';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -28,10 +23,10 @@ import {
 export default function App() {
   const [currentTab, setCurrentTab] = useState<Page>('upload'); // open upload screen initially matching screenshot 1
   const [activeFilterTab, setActiveFilterTab] = useState<'overview' | 'recent' | 'starred'>('recent');
-  const [papers, setPapers] = useState<AcademicPaper[]>(INITIAL_PAPERS);
-  const [reports, setReports] = useState<Report[]>(INITIAL_REPORTS);
-  const [questions, setQuestions] = useState<Question[]>(QUESTION_BANK_DATA);
-  const [selectedReportId, setSelectedReportId] = useState<string | null>('report-1');
+  const [papers, setPapers] = useState<AcademicPaper[]>([]);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   
   // Mobile drawer sidebar state toggle
@@ -46,75 +41,79 @@ export default function App() {
   // Support inquiry state
   const [supportSent, setSupportSent] = useState(false);
   const [supportMessage, setSupportMessage] = useState('');
+  const [supportCategory, setSupportCategory] = useState('General Academic Question Bank inquiries');
 
-  // Handler triggered when "Analyze with AI" is clicked & simulation finishes
-  const handleAnalyzePaper = (subject: string, bloomAnalysis: boolean) => {
-    // Generate a brand new report based on simulated analysis parameters
-    const newReportId = `#992${Math.floor(Math.random() * 90 + 10)}`;
-    const newId = `report-${Date.now()}`;
-    
-    const newReport: Report = {
-      id: newId,
-      paperId: `paper-manual-${Date.now()}`,
-      reportId: newReportId,
-      title: `${selectedSubjectName(subject)} Assessment Mapped Run`,
-      faculty: defaultFaculty,
-      semester: 'Semester 2, 2024',
-      aiSummary: `This academic assessment was successfully parsed with a high level of accuracy under the "${subject}" taxonomy parameters. Question complexities conform to Bloom's core cognitive benchmarks.`,
-      questionCount: 12,
-      avgDifficulty: 'Medium',
-      difficultyProfile: {
-        hard: 30,
-        medium: 50,
-        easy: 20
-      },
-      bloomsDistribution: {
-        apply: 40,
-        evaluate: 30,
-        analyze: 30,
-        score: bloomAnalysis ? 88 : 0
-      },
-      topicDistribution: [
-        { topic: 'Foundational Knowledge Core', percentage: 50, questionsCount: 6, isMajor: true },
-        { topic: 'Experimental Application Mappings', percentage: 30, questionsCount: 4, isMajor: true },
-        { topic: 'Complex Abstract Formations', percentage: 20, questionsCount: 2, isMajor: false }
-      ],
-      questions: [
-        {
-          id: `q-manual-1-${Date.now()}`,
-          number: 1,
-          topic: 'Foundational Knowledge Core',
-          difficulty: 'Easy',
-          taxonomy: 'Apply',
-          text: 'Outline the fundamental criteria used to identify appropriate system boundaries under typical parameters.',
-          aiInsights: 'Direct recall question that evaluates baseline comprehension levels. Good starting checkpoint.',
-          isStarred: false
-        },
-        {
-          id: `q-manual-2-${Date.now()}`,
-          number: 2,
-          topic: 'Experimental Application Mappings',
-          difficulty: 'Medium',
-          taxonomy: 'Analyze',
-          text: 'Design a simulation model to verify consistent flow outputs in high-resistance channels. Explain details.',
-          aiInsights: 'Tests procedural engineering knowledge and analytical modeling capability.',
-          isStarred: false
+  // Fetch functions to sync state with the SQLite database
+  const fetchPapers = async () => {
+    try {
+      const res = await fetch("/api/papers");
+      if (res.ok) {
+        const data = await res.json();
+        setPapers(data);
+      }
+    } catch (err) {
+      console.error("Error fetching papers:", err);
+    }
+  };
+
+  const fetchReports = async () => {
+    try {
+      const res = await fetch("/api/reports");
+      if (res.ok) {
+        const data = await res.json();
+        setReports(data);
+        if (data.length > 0 && !selectedReportId) {
+          setSelectedReportId(data[0].id);
         }
-      ]
-    };
+      }
+    } catch (err) {
+      console.error("Error fetching reports:", err);
+    }
+  };
 
-    // Update global state
-    setReports([newReport, ...reports]);
-    setSelectedReportId(newId);
+  const fetchQuestions = async () => {
+    try {
+      const res = await fetch("/api/questions");
+      if (res.ok) {
+        const data = await res.json();
+        setQuestions(data);
+      }
+    } catch (err) {
+      console.error("Error fetching questions:", err);
+    }
+  };
+
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch("/api/settings");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ocrQuality) setOcrQuality(data.ocrQuality);
+        if (data.autoMapBlooms !== undefined) setAutoMapBlooms(data.autoMapBlooms);
+        if (data.confidenceThreshold !== undefined) setConfidenceThreshold(data.confidenceThreshold);
+        if (data.defaultFaculty) setDefaultFaculty(data.defaultFaculty);
+      }
+    } catch (err) {
+      console.error("Error loading settings:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchPapers();
+    fetchReports();
+    fetchQuestions();
+    fetchSettings();
+  }, []);
+
+  // Handler triggered when "Analyze with AI" finishes
+  const handleAnalyzePaper = (newReport: Report) => {
+    // Synchronize latest records from database
+    fetchPapers();
+    fetchQuestions();
     
-    // Add some questions to the global Question Bank
-    const newQList: Question[] = newReport.questions.map((q, index) => ({
-      ...q,
-      code: `EXAM-${Math.floor(Math.random() * 100 + 100)}`,
-      date: 'Current Run 2024',
-      lecturer: 'Dr. Julian Dash'
-    }));
-    setQuestions([...newQList, ...questions]);
+    // Prepend new report to state list
+    setReports(prev => [newReport, ...prev]);
+    setSelectedReportId(newReport.id);
 
     // Automatically navigate to reports tab displaying the new analysis!
     setCurrentTab('reports');
@@ -126,44 +125,79 @@ export default function App() {
   };
 
   // Toggle stargroup items on detailed report
-  const handleToggleStarReportQuestion = (reportId: string, questionId: string) => {
-    // update report list
-    const updatedReports = reports.map(r => {
-      if (r.id !== reportId) return r;
-      return {
-        ...r,
-        questions: r.questions.map(q => {
-          if (q.id !== questionId) return q;
-          return { ...q, isStarred: !q.isStarred };
-        })
-      };
-    });
-    setReports(updatedReports);
+  const handleToggleStarReportQuestion = async (reportId: string, questionId: string) => {
+    try {
+      const res = await fetch(`/api/questions/${questionId}/star`, { method: "POST" });
+      if (res.ok) {
+        // update reports list locally
+        const updatedReports = reports.map(r => {
+          if (r.id !== reportId) return r;
+          return {
+            ...r,
+            questions: r.questions.map(q => {
+              if (q.id !== questionId) return q;
+              return { ...q, isStarred: !q.isStarred };
+            })
+          };
+        });
+        setReports(updatedReports);
 
-    // also synchronize global question bank if exists
-    const targetQ = reports.find(r => r.id === reportId)?.questions.find(q => q.id === questionId);
-    if (targetQ) {
-      setQuestions(questions.map(q => {
-        if (q.text === targetQ.text) {
-          return { ...q, isStarred: !q.isStarred };
-        }
-        return q;
-      }));
+        // sync global question bank list
+        setQuestions(prev => prev.map(q => q.id === questionId ? { ...q, isStarred: !q.isStarred } : q));
+      }
+    } catch (err) {
+      console.error("Error toggling star:", err);
     }
   };
 
   // Toggle stargroup item directly on question tree
-  const handleToggleStarGlobalQuestion = (id: string) => {
-    setQuestions(questions.map(q => {
-      if (q.id !== id) return q;
-      return { ...q, isStarred: !q.isStarred };
-    }));
+  const handleToggleStarGlobalQuestion = async (id: string) => {
+    try {
+      const res = await fetch(`/api/questions/${id}/star`, { method: "POST" });
+      if (res.ok) {
+        setQuestions(prev => prev.map(q => q.id === id ? { ...q, isStarred: !q.isStarred } : q));
+        
+        // Also sync in reports state
+        setReports(prevReports => prevReports.map(r => ({
+          ...r,
+          questions: r.questions.map(q => q.id === id ? { ...q, isStarred: !q.isStarred } : q)
+        })));
+      }
+    } catch (err) {
+      console.error("Error toggling star:", err);
+    }
   };
 
   const handleSelectQuestionReport = (paperId: string) => {
-    setSelectedReportId('report-1'); // physics or calculus simulation fallback
+    const matchedReport = reports.find(r => r.paperId === paperId);
+    if (matchedReport) {
+      setSelectedReportId(matchedReport.id);
+    }
     setCurrentTab('reports');
     setActiveFilterTab('recent');
+  };
+
+  const handleSaveSettings = async () => {
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ocrQuality,
+          autoMapBlooms,
+          confidenceThreshold,
+          defaultFaculty
+        })
+      });
+      if (res.ok) {
+        alert("Settings saved successfully to SQLite Database!");
+      } else {
+        alert("Failed to save settings.");
+      }
+    } catch (err) {
+      console.error("Error saving settings:", err);
+      alert("Error contacting server to save settings.");
+    }
   };
 
   return (
@@ -301,7 +335,7 @@ export default function App() {
 
               <div className="pt-4 flex justify-end">
                 <button 
-                  onClick={() => alert("Settings saved successfully!")}
+                  onClick={handleSaveSettings}
                   className="bg-[#142175] text-white py-2.5 px-6 rounded-xl font-bold text-xs hover:bg-[#202e96] flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all shadow-sm"
                 >
                   <Save className="h-4 w-4" />
@@ -337,15 +371,34 @@ export default function App() {
                     </button>
                   </div>
                 ) : (
-                  <form onSubmit={(e) => {
+                  <form onSubmit={async (e) => {
                     e.preventDefault();
                     if (!supportMessage.trim()) return;
-                    setSupportSent(true);
-                    setSupportMessage('');
+                    try {
+                      const res = await fetch("/api/support", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          category: supportCategory,
+                          message: supportMessage
+                        })
+                      });
+                      if (res.ok) {
+                        setSupportSent(true);
+                        setSupportMessage('');
+                      } else {
+                        alert("Failed to record support inquiry.");
+                      }
+                    } catch (err) {
+                      console.error("Error sending support inquiry:", err);
+                      alert("Error connecting to server.");
+                    }
                   }} className="space-y-4">
                     <div className="space-y-2">
                       <label className="text-3xs font-bold text-slate-400 uppercase tracking-widest block">Topic Category</label>
                       <select 
+                        value={supportCategory}
+                        onChange={(e) => setSupportCategory(e.target.value)}
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 font-medium focus:outline-none focus:border-[#142175] cursor-pointer"
                       >
                         <option>General Academic Question Bank inquiries</option>

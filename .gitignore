@@ -1,0 +1,11 @@
+.env
+.env*
+qgenie.db
+Backend/qgenie.db
+Backend/uploads/
+Backend/__pycache__/
+node_modules/
+dist/
+.vite/
+*.db
+*.log

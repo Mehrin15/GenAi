@@ -58,12 +58,27 @@ export default function ReportsTab({
     return matchesSearch && matchesDifficulty;
   });
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     setIsDownloading(true);
-    setTimeout(() => {
+    try {
+      const response = await fetch(`/api/reports/${activeReport.id}/download`);
+      if (!response.ok) throw new Error("Failed to compile PDF report on server.");
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${activeReport.title.replace(/\s+/g, '_')}_Analysis_Report.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (error: any) {
+      console.error(error);
+      alert(`Download failed: ${error.message}`);
+    } finally {
       setIsDownloading(false);
-      alert(`Successfully compiled and downloaded "${activeReport.title} Analysis Report.pdf"`);
-    }, 1500);
+    }
   };
 
   const handleShare = () => {
